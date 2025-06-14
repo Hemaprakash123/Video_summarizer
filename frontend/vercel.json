@@ -1,21 +1,18 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build"
-    }
-  ],
   "routes": [
     {
       "src": "/static/(.*)",
-      "dest": "/static/$1"
+      "headers": {
+        "Content-Type": "text/javascript"
+      },
+      "continue": true
     },
     {
       "src": "/(.*)",
       "dest": "/",
       "headers": {
-        "Cache-Control": "s-maxage=3600"
+        "Content-Type": "text/javascript"
       }
     }
   ]
