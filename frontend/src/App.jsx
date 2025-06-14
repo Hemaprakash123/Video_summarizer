@@ -17,7 +17,7 @@ function App() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("https://video-summarizer-backend-r4te.onrender.com/summarize", {
+      const response = await fetch("https://video-summarizer-backend-y02h.onrender.com/summarize", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
