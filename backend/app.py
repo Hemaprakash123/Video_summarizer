@@ -1,27 +1,38 @@
+import os
+import re
+import logging
+from datetime import datetime
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from youtube_transcript_api import YouTubeTranscriptApi, NoTranscriptFound
 import google.generativeai as genai
 from dotenv import load_dotenv
-import os
-from datetime import datetime
 
-# Load environment variables
+# Initialize
 load_dotenv()
-
 app = Flask(__name__)
-CORS(app, resources={
-    r"/summarize": {
-        "origins": ["*"]  # Adjust in production to your frontend URL
-    }
-})
+CORS(app)
 
-# Configure Gemini
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-model = genai.GenerativeModel('gemini-1.5-flash')  # Updated to latest model
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('app.log'),
+        logging.StreamHandler()
+    ]
+)
+
+# Gemini setup
+try:
+    genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+    model = genai.GenerativeModel('gemini-1.5-flash')
+except Exception as e:
+    logging.error(f"Gemini initialization failed: {str(e)}")
+    raise
 
 def extract_video_id(url):
-    """Extract video ID from various YouTube URL formats"""
+    """Extract YouTube video ID from URL"""
     patterns = [
         r'(?:v=|v\/|vi=|vi\/|youtu\.be\/|\/embed\/|\/v\/|\/e\/)([^#\&\?]*).*',
         r'^([a-zA-Z0-9_-]{11})$'
@@ -34,49 +45,59 @@ def extract_video_id(url):
 
 @app.route("/summarize", methods=["POST"])
 def summarize_video():
+    start_time = datetime.now()
+    
     try:
+        # Validate input
         data = request.get_json()
         if not data or 'url' not in data:
-            return jsonify({"error": "No URL provided"}), 400
-
+            raise ValueError("Missing YouTube URL")
+            
         video_url = data['url']
         video_id = extract_video_id(video_url)
         if not video_id:
-            return jsonify({"error": "Invalid YouTube URL"}), 400
+            raise ValueError("Invalid YouTube URL format")
 
         # Get transcript
         try:
-            transcript = YouTubeTranscriptApi.get_transcript(video_id)
-            transcript_text = " ".join([t["text"] for t in transcript])
+            transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
+            transcript_text = " ".join([t['text'] for t in transcript])
         except NoTranscriptFound:
             return jsonify({
-                "error": "No captions available",
-                "solution": "Try a different video with captions enabled"
+                "error": "No English captions available",
+                "solution": "Try a video with closed captions"
             }), 400
 
         # Generate summary
-        prompt = f"""Create a structured summary with:
-        1. 3-5 Key Points
-        2. Main Takeaways
-        3. Video Length: {len(transcript)} segments
-        
-        Transcript: {transcript_text}"""
+        prompt = {
+            "text": f"""Create a structured summary with:
+            1. Key Points (3-5 bullet points)
+            2. Main Takeaways
+            3. Recommended Audience
+            
+            Video Transcript: {transcript_text[:8000]}... [truncated if too long]"""
+        }
         
         response = model.generate_content(prompt)
         if not response.text:
-            raise ValueError("Empty response from Gemini")
+            raise ValueError("Empty response from Gemini API")
+
+        # Log successful processing
+        processing_time = (datetime.now() - start_time).total_seconds()
+        logging.info(f"Processed video {video_id} in {processing_time:.2f}s")
 
         return jsonify({
             "summary": response.text,
             "video_id": video_id,
-            "timestamp": datetime.now().isoformat()
+            "processing_time": f"{processing_time:.2f}s"
         })
 
     except Exception as e:
-        app.logger.error(f"Error processing request: {str(e)}")
+        logging.error(f"Error processing {video_url}: {str(e)}")
         return jsonify({
             "error": "Failed to generate summary",
-            "details": str(e)
+            "details": str(e),
+            "timestamp": datetime.now().isoformat()
         }), 500
 
 @app.route("/health", methods=["GET"])
