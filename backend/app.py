@@ -34,7 +34,7 @@ except Exception as e:
 def extract_video_id(url):
     """Extract YouTube video ID from URL"""
     patterns = [
-        r'(?:v=|v\/|vi=|vi\/|youtu\.be\/|\/embed\/|\/v\/|\/e\/)([^#\&\?]*).*',
+        r'(?:v=|v/|vi=|vi/|youtu\.be/|/embed/|/v/|/e/)([^#&?]*)',
         r'^([a-zA-Z0-9_-]{11})$'
     ]
     for pattern in patterns:
@@ -46,19 +46,17 @@ def extract_video_id(url):
 @app.route("/summarize", methods=["POST"])
 def summarize_video():
     start_time = datetime.now()
-    
+
     try:
-        # Validate input
         data = request.get_json()
         if not data or 'url' not in data:
             raise ValueError("Missing YouTube URL")
-            
+
         video_url = data['url']
         video_id = extract_video_id(video_url)
         if not video_id:
             raise ValueError("Invalid YouTube URL format")
 
-        # Get transcript
         try:
             transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=['en'])
             transcript_text = " ".join([t['text'] for t in transcript])
@@ -68,21 +66,18 @@ def summarize_video():
                 "solution": "Try a video with closed captions"
             }), 400
 
-        # Generate summary
-        prompt = {
-            "text": f"""Create a structured summary with:
-            1. Key Points (3-5 bullet points)
-            2. Main Takeaways
-            3. Recommended Audience
-            
-            Video Transcript: {transcript_text[:8000]}... [truncated if too long]"""
-        }
-        
-        response = model.generate_content(prompt)
-        if not response.text:
-            raise ValueError("Empty response from Gemini API")
+        prompt = f"""Create a structured summary with:
+1. Key Points (3-5 bullet points)
+2. Main Takeaways
+3. Recommended Audience
 
-        # Log successful processing
+Video Transcript: {transcript_text[:8000]}... [truncated if too long]"""
+
+        response = model.generate_content(prompt)
+
+        if not hasattr(response, "text") or not response.text:
+            raise ValueError("Empty or invalid response from Gemini API")
+
         processing_time = (datetime.now() - start_time).total_seconds()
         logging.info(f"Processed video {video_id} in {processing_time:.2f}s")
 
@@ -93,7 +88,7 @@ def summarize_video():
         })
 
     except Exception as e:
-        logging.error(f"Error processing {video_url}: {str(e)}")
+        logging.exception(f"Error processing {data.get('url', '')}:")
         return jsonify({
             "error": "Failed to generate summary",
             "details": str(e),
